@@ -11,6 +11,7 @@
 /* ************************************************************************** */
 
 #include "utils.h"
+#include "errno.h"
 
 bool	is_all_eat(t_philo *philos)
 {
@@ -66,10 +67,17 @@ void	*obsorver(void *ptr)
 
 void	philo_routine(t_philo *philo)
 {
-	pthread_mutex_lock(philo->mutexes.left_fork);
-	print_action(philo, " has taken a fork");
-	pthread_mutex_lock(philo->mutexes.right_fork);
-	print_action(philo, " has taken a fork");
+    if (pthread_mutex_trylock(philo->mutexes.left_fork) == EBUSY) {
+        ft_usleep(1);
+        return;
+    } else {
+        if (pthread_mutex_trylock(philo->mutexes.right_fork) == EBUSY) {
+            pthread_mutex_unlock(philo->mutexes.left_fork);
+            ft_usleep(1);
+            return;
+        }
+    }
+    print_action(philo, " has taken forks");
 	pthread_mutex_lock(philo->mutexes.meal_lock);
 	print_action(philo, " is eating");
 	philo->times.last_meal = get_current_time();
