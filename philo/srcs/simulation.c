@@ -13,58 +13,6 @@
 #include "utils.h"
 #include "errno.h"
 
-bool	is_all_eat(t_philo *philos)
-{
-	int		finished;
-	int		i;
-
-	i = -1;
-	finished = 0;
-	if (philos[0].must_eat == -1)
-		return (false);
-	while (++i < philos[0].philo_count)
-	{
-		pthread_mutex_lock(philos->mutexes.meal_lock);
-		if (philos[i].meals_eaten >= philos[i].must_eat)
-			++finished;
-		pthread_mutex_unlock(philos->mutexes.meal_lock);
-	}
-	if (finished == philos[0].philo_count)
-	{
-		pthread_mutex_lock(philos->mutexes.write_lock);
-		return (true);
-	}
-	return (false);
-}
-
-void	*obsorver(void *ptr)
-{
-	t_philo	*philos;
-	int		i;
-
-	philos = (t_philo *)ptr;
-	while (true)
-	{
-		i = -1;
-		while (++i < philos[0].philo_count)
-		{
-			pthread_mutex_lock(philos->mutexes.meal_lock);
-			if (get_current_time() - philos[i].times.last_meal
-				> philos[i].times.die)
-			{
-				pthread_mutex_unlock(philos->mutexes.meal_lock);
-				print_action(&philos[i], RED" died"RESET);
-				pthread_mutex_lock(philos->mutexes.write_lock);
-				return (NULL);
-			}
-			pthread_mutex_unlock(philos->mutexes.meal_lock);
-		}
-		if (is_all_eat(philos))
-			return (NULL);
-	}
-	return (NULL);
-}
-
 void	philo_routine(t_philo *philo)
 {
     if (pthread_mutex_trylock(philo->mutexes.left_fork) == EBUSY) {
@@ -102,19 +50,36 @@ void	*start_simulation(void *ptr)
 	philo->times.born_time = get_current_time();
 	philo->times.last_meal = get_current_time();
 	pthread_mutex_unlock(philo->mutexes.meal_lock);
-	while (true)
-		philo_routine(philo);
+	while (true) {
+        pthread_mutex_lock(philo->mutexes.meal_lock);
+        if (*(philo->finish)) {
+            pthread_mutex_unlock(philo->mutexes.meal_lock);
+            break;
+        }
+
+        if (philo->meals_eaten >= philo->must_eat) {
+            pthread_mutex_unlock(philo->mutexes.meal_lock);
+            break;
+        }
+
+        if (get_current_time() - philo->times.last_meal > philo->times.die) {
+            print_action(philo, RED" died"RESET);
+            *(philo->finish) = true;
+            pthread_mutex_unlock(philo->mutexes.meal_lock);
+            break;
+        }
+        pthread_mutex_unlock(philo->mutexes.meal_lock);
+
+        philo_routine(philo);
+    }
 	return (NULL);
 }
 
 void	launcher(t_engine *engine, int count)
 {
-	t_id	obsorver_id;
 	int		i;
 
 	i = -1;
-	if (pthread_create(&obsorver_id, NULL, &obsorver, engine->philos) != 0)
-		destroy_all(engine, "[Thread Creation ERROR]\n", count, 1);
 	while (++i < count)
 	{
 		if (pthread_create(&engine->philos[i].thread_id, NULL,
@@ -122,11 +87,9 @@ void	launcher(t_engine *engine, int count)
 			destroy_all(engine, "[Thread Creation ERROR]\n", count, 1);
 	}
 	i = -1;
-	if (pthread_join(obsorver_id, NULL) != 0)
-		destroy_all(engine, "[Thread Join ERROR]\n", count, 1);
 	while (++i < count)
 	{
-		if (pthread_detach(engine->philos[i].thread_id) != 0)
-			destroy_all(engine, "[Thread Detach ERROR]\n", count, 1);
+        if (pthread_join(engine->philos[i].thread_id, NULL) != 0)
+            destroy_all(engine, "[Thread Join ERROR]\n", count, 1);
 	}
 }
